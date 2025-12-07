@@ -1,0 +1,18 @@
+{
+  "name": "backend-note-anonime",
+  "version": "1.0.0",
+  "description": "Backend pentru aplicatia de acordare anonima de note",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

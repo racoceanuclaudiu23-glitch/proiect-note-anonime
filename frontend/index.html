@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aplicație note anonime (demo)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-bottom: 5px;
+    }
+
+    small {
+      color: #555;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 6px;
+      padding: 20px;
+      margin-top: 15px;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
+    }
+
+    label {
+      display: block;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    textarea {
+      width: 100%;
+      padding: 6px;
+      margin-top: 5px;
+      box-sizing: border-box;
+    }
+
+    button {
+      margin-top: 15px;
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background-color: #1976d2;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #145ca3;
+    }
+
+    #statusMessage {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
+    ul {
+      margin-top: 10px;
+      padding-left: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Aplicație note anonime (demo)</h1>
+    <small>Backend: http://localhost:3000</small>
+
+    <!-- Card trimitere notă -->
+    <div class="card">
+      <h2>Trimite o notă (rol profesor)</h2>
+
+      <form id="notaForm">
+        <label for="profesorId">
+          ID profesor (text liber, ex: <code>prof1</code>):
+        </label>
+        <input type="text" id="profesorId" required />
+
+        <label for="studentId">
+          ID student (text liber, ex: <code>stud1</code>):
+        </label>
+        <input type="text" id="studentId" required />
+
+        <label for="valoareNota">
+          Valoare notă (0–10):
+        </label>
+        <input type="number" id="valoareNota" min="0" max="10" step="0.25" value="8.75" required />
+
+        <label for="comentariu">
+          Comentariu:
+        </label>
+        <textarea id="comentariu" rows="4" placeholder="Feedback anonim"></textarea>
+
+        <button type="submit">Trimite nota</button>
+      </form>
+
+      <div id="statusMessage"></div>
+    </div>
+
+    <!-- Card vizualizare note -->
+    <div class="card">
+      <h2>Vezi toate notele</h2>
+      <button id="incarcaNoteBtn">Încarcă note</button>
+      <ul id="listaNote"></ul>
+    </div>
+  </div>
+
+  <!-- Legăm logica JS -->
+  <script src="app.js"></script>
+</body>
+</html>
