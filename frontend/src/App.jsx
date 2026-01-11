@@ -117,7 +117,7 @@ export default function App() {
 
     setLoading(true);
     try {
-      await api.createProject({ name: newProjectName.trim(), teamName: teamName.trim() });
+      await api.createProject({ title: newProjectName.trim(), creator_name: jurorName });
       setNewProjectName("");
       await loadProjects();
     } catch (e2) {
@@ -289,59 +289,89 @@ export default function App() {
   );
 }
 
-function TeacherView({ projects }) {
-  const [projectId, setProjectId] = useState("");
+function TeacherView() {
+  const [juryId, setJuryId] = useState("8"); // pune default 8 ca sa iti mearga demo imediat
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function load() {
     setErr("");
     setData(null);
-    if (!projectId) return;
 
+    const id = Number(juryId);
+    if (Number.isNaN(id) || id <= 0) {
+      setErr("Introdu un juryId valid (numar).");
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await api.teacherProjectScores(projectId);
+      const res = await request(`/api/teacher/juries/${id}`);
       setData(res);
     } catch (e) {
       setErr(e.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
     <section className="card">
-      <h2>Profesor – scoruri proiect</h2>
+      <h2>Profesor – scoruri juriu</h2>
 
       <div className="row">
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          <option value="">Selectează proiect…</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} (ID {p.id})
-            </option>
-          ))}
-        </select>
-
-        <button onClick={load}>Vezi scor</button>
+        <input
+          value={juryId}
+          onChange={(e) => setJuryId(e.target.value)}
+          placeholder="JuryId (ex: 8)"
+        />
+        <button onClick={load} disabled={loading}>
+          Vezi scor
+        </button>
       </div>
 
+      {loading && <p>Se încarcă…</p>}
       {err && <p className="error">{err}</p>}
 
       {data && (
         <div className="box">
           <p>
+            <strong>Jury:</strong> #{data.id}
+          </p>
+          <p>
+            <strong>Proiect:</strong> {data.project?.title} (ID {data.project?.id})
+          </p>
+          <p>
+            <strong>Livrabil:</strong> {data.deliverable?.title} (ID {data.deliverable?.id})
+          </p>
+          <p>
+            <strong>Nr. evaluări:</strong> {data.countEvaluations}
+          </p>
+          <p>
             <strong>Final score:</strong> {data.finalScore ?? "—"}
           </p>
-          {data.scores?.length ? (
-            <ul>
-              {data.scores.map((s, idx) => (
-                <li key={idx}>{s}</li>
-              ))}
-            </ul>
+
+          {Array.isArray(data.scores) && data.scores.length > 0 ? (
+            <div>
+              <p className="muted">Scoruri (fără identitatea juraților):</p>
+              <ul>
+                {data.scores.map((s, idx) => (
+                  <li key={idx}>{s}</li>
+                ))}
+              </ul>
+            </div>
           ) : (
             <p className="muted">Fără note încă.</p>
           )}
         </div>
       )}
+
+      <p className="muted">
+        Tip: juryId îl obții după asignare (POST /api/juries/assign). Profesorul vede scoruri agregate fără
+        identitatea membrilor juriului.
+      </p>
     </section>
   );
 }
+

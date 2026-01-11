@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id   Int    @id @default(autoincrement())
+  name String
+  role String // "profesor" | "student"
+
+  notesGiven Note[] @relation("ProfesorNotes")
+  notesTaken Note[] @relation("StudentNotes")
+
+  memberships ProjectMember[]
+
+  juryMemberships JuryMember[]
+  evaluations     Evaluation[]
+}
+
+model Note {
+  id         Int      @id @default(autoincrement())
+  profesorId Int
+  studentId  Int
+  value      Float
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  profesor User @relation("ProfesorNotes", fields: [profesorId], references: [id])
+  student  User @relation("StudentNotes", fields: [studentId], references: [id])
+}
+
+model Project {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+
+  members      ProjectMember[]
+  deliverables Deliverable[]
+
+  juries Jury[]
+}
+
+model ProjectMember {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  userId    Int
+  role      String // "MP" pentru acum
+  joinedAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+}
+
+model Deliverable {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  title     String
+  dueDate   DateTime
+  videoUrl  String?
+  liveUrl   String?
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  juries Jury[]
+}
+
+model Jury {
+  id            Int      @id @default(autoincrement())
+  projectId     Int
+  deliverableId Int
+  createdAt     DateTime @default(now())
+
+  project     Project     @relation(fields: [projectId], references: [id])
+  deliverable Deliverable @relation(fields: [deliverableId], references: [id])
+
+  members     JuryMember[]
+  evaluations Evaluation[]
+
+  @@unique([projectId, deliverableId])
+}
+
+model JuryMember {
+  id         Int      @id @default(autoincrement())
+  juryId     Int
+  userId     Int
+  assignedAt DateTime @default(now())
+
+  jury Jury @relation(fields: [juryId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([juryId, userId])
+}
+
+model Evaluation {
+  id        Int      @id @default(autoincrement())
+  juryId    Int
+  userId    Int
+  score     Float
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jury Jury @relation(fields: [juryId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([juryId, userId])
+}
