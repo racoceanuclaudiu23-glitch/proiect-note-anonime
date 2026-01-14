@@ -124,18 +124,14 @@ function computeRawAverage(scores) {
 // --------------------------------------------------
 // HEALTH
 // --------------------------------------------------
-app.get("/api/health", async (req, res) => {
-  try {
-    await prisma.user.findFirst();
-    res.json({
-      status: "ok",
-      message: "Backend pornit",
-      DATABASE_URL: process.env.DATABASE_URL,
-    });
-  } catch (err) {
-    res.status(500).json({ status: "error", error: err.message });
-  }
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "Backend alive",
+    time: new Date().toISOString()
+  });
 });
+
 
 // --------------------------------------------------
 // DEMO: creeaza un juriu rapid (pentru test)
