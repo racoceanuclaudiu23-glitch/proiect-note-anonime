@@ -17,6 +17,9 @@ const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 // APP SETUP
 // --------------------------------------------------
 const app = express();
+app.get("/", (req, res) => res.send("OK backend"));
+app.get("/api/health", (req, res) => res.json({ status: "ok", where: "backend" }));
+
 app.use(cors());
 app.use(express.json());
 
