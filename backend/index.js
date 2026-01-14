@@ -10,6 +10,7 @@ const cors = require("cors");
 const { PrismaClient } = require("@prisma/client");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
+
 const app = express();
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
@@ -20,40 +21,30 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.post("/api/demo-jury", async (req, res) => {
-  const { jurorName, projectId } = req.body;
 
-  const jury = await prisma.jury.create({
-    data: {
-      jurorName,
-      projectId
-    }
-  });
-
-  res.json(jury);
-});
-
-
-// =====================
-// PRISMA SETUP
-// =====================
-const fallbackUrl = "file:./note.db";
+// fallback daca DATABASE_URL lipseste (Render)
 if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
-  process.env.DATABASE_URL = fallbackUrl;
+  process.env.DATABASE_URL = "file:./note.db";
 }
 
-// Prisma v7 + adapter-better-sqlite3 (config cu { url })
 const adapter = new PrismaBetterSqlite3({
   url: process.env.DATABASE_URL,
 });
 
 const prisma = new PrismaClient({ adapter });
 
-// helper debug: vezi modelele disponibile
-console.log(
-  "PRISMA MODELS:",
-  Object.keys(prisma).filter((k) => !k.startsWith("$") && !k.startsWith("_"))
-);
+app.post("/api/demo-jury", async (req, res) => {
+  const { jurorName, projectId } = req.body;
+
+  const jury = await prisma.jury.create({
+    data: { jurorName, projectId },
+  });
+
+  res.json(jury);
+});
+
+
+
 
 // =====================
 // HELPERS
