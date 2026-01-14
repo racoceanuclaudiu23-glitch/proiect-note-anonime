@@ -1,6 +1,8 @@
 
 
 // index.js - backend pentru aplicatia de note anonime (Prisma v7 + SQLite)
+process.on("unhandledRejection", (err) => console.error("UNHANDLED:", err));
+process.on("uncaughtException", (err) => console.error("UNCAUGHT:", err));
 
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
@@ -34,13 +36,22 @@ const adapter = new PrismaBetterSqlite3({
 const prisma = new PrismaClient({ adapter });
 
 app.post("/api/demo-jury", async (req, res) => {
-  const { jurorName, projectId } = req.body;
+  try {
+    const { jurorName, projectId } = req.body;
 
-  const jury = await prisma.jury.create({
-    data: { jurorName, projectId },
-  });
+    const jury = await prisma.jury.create({
+      data: { jurorName, projectId },
+    });
 
-  res.json(jury);
+    res.json(jury);
+  } catch (err) {
+    console.error("DEMO-JURY ERROR:", err);
+    res.status(500).json({
+      error: "demo-jury failed",
+      message: err?.message,
+      code: err?.code,
+    });
+  }
 });
 
 
