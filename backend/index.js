@@ -20,6 +20,19 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+app.post("/api/demo-jury", async (req, res) => {
+  const { jurorName, projectId } = req.body;
+
+  const jury = await prisma.jury.create({
+    data: {
+      jurorName,
+      projectId
+    }
+  });
+
+  res.json(jury);
+});
+
 
 // =====================
 // PRISMA SETUP
