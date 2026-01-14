@@ -1,6 +1,6 @@
+// backend/index.js - backend pentru aplicatia de note anonime (Prisma + SQLite)
+// --------------------------------------------------
 
-
-// index.js - backend pentru aplicatia de note anonime (Prisma v7 + SQLite)
 process.on("unhandledRejection", (err) => console.error("UNHANDLED:", err));
 process.on("uncaughtException", (err) => console.error("UNCAUGHT:", err));
 
@@ -9,63 +9,85 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const cors = require("cors");
+
 const { PrismaClient } = require("@prisma/client");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
-
+// --------------------------------------------------
+// APP SETUP
+// --------------------------------------------------
 const app = express();
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
-const PORT = process.env.PORT || 3000;
-
-
 app.use(cors());
 app.use(express.json());
 
-// fallback daca DATABASE_URL lipseste (Render)
+// fallback daca DATABASE_URL lipseste (Render / local)
 if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
   process.env.DATABASE_URL = "file:./note.db";
 }
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL,
-});
-
+const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-app.post("/api/demo-jury", async (req, res) => {
+// Lista jurii unde user e membru
+// GET /api/juries?user=student1
+app.get("/api/juries", async (req, res) => {
   try {
-    const { jurorName, projectId } = req.body;
+    const userName = (req.query.user || "").toString().trim();
+    if (!userName) return res.status(400).json({ error: "query param user este obligatoriu" });
 
-    const jury = await prisma.jury.create({
-      data: { jurorName, projectId },
+    const user = await prisma.user.findFirst({ where: { name: userName } });
+    if (!user) return res.json({ total: 0, juries: [] });
+
+    const memberships = await prisma.juryMember.findMany({
+      where: { userId: user.id },
+      include: {
+        jury: {
+          include: {
+            project: true,
+            deliverable: true,
+            evaluations: true,
+          },
+        },
+      },
+      orderBy: { assignedAt: "desc" },
     });
 
-    res.json(jury);
+    const juries = memberships.map((m) => {
+      const scores = m.jury.evaluations.map((e) => e.score);
+      return {
+        juryId: m.jury.id,
+        projectId: m.jury.projectId,
+        projectTitle: m.jury.project.title,
+        deliverableId: m.jury.deliverableId,
+        deliverableTitle: m.jury.deliverable.title,
+        dueDate: m.jury.deliverable.dueDate,
+        countEvaluations: scores.length,
+        finalScore: computeFinalScoreValue(scores),
+      };
+    });
+
+    return res.json({ total: juries.length, juries });
   } catch (err) {
-    console.error("DEMO-JURY ERROR:", err);
-    res.status(500).json({
-      error: "demo-jury failed",
-      message: err?.message,
-      code: err?.code,
-    });
+    console.error("Eroare /api/juries:", err);
+    return res.status(500).json({ error: "Eroare la listare jurii", details: err.message });
   }
 });
 
 
+const PORT = process.env.PORT || 3000;
 
-
-// =====================
+// --------------------------------------------------
 // HELPERS
-// =====================
+// --------------------------------------------------
 
 // helper: ia sau creeaza user dupa nume + rol (evita amestec "Mihai" profesor/student)
 async function getOrCreateUser(name, role) {
-  let user = await prisma.user.findFirst({ where: { name, role } });
+  const cleanName = (name || "").toString().trim();
+  if (!cleanName) throw new Error("Name invalid (gol)");
+
+  let user = await prisma.user.findFirst({ where: { name: cleanName, role } });
   if (!user) {
-    user = await prisma.user.create({ data: { name, role } });
+    user = await prisma.user.create({ data: { name: cleanName, role } });
   }
   return user;
 }
@@ -77,60 +99,31 @@ function validateGrade(valoareNum) {
   return null;
 }
 
-function computeFinalScore(scores) {
-  if (!scores || scores.length < 3) return null;
-
-  const sorted = [...scores].sort((a, b) => a - b);
-  const trimmed = sorted.slice(1, -1); // fara min si max
-
-  const sum = trimmed.reduce((acc, x) => acc + x, 0);
-  const avg = sum / trimmed.length;
-
-  return Math.round(avg * 100) / 100;
-}
-
-function computeRawAverage(scores) {
-  if (!scores || scores.length === 0) return null;
-  const sum = scores.reduce((acc, x) => acc + x, 0);
-  const avg = sum / scores.length;
-  return Math.round(avg * 100) / 100;
-}
-
-// helper: calculeaza scor final omitand cea mai mare si cea mai mica nota
-function computeFinalScore(scores) {
-  if (!scores || scores.length === 0) return { count: 0, scores: [], finalScore: null };
-
-  const sorted = [...scores].sort((a, b) => a - b);
-  const count = sorted.length;
-
-  // ca sa poti omite min si max ai nevoie de minim 3 note
-  if (count < 3) {
-    return { count, scores: sorted, finalScore: null };
-  }
-
-  // elimina min si max
-  const trimmed = sorted.slice(1, -1);
-  const sum = trimmed.reduce((acc, x) => acc + x, 0);
-  const avg = sum / trimmed.length;
-
-  // rotunjire la 2 zecimale
-  const finalScore = Math.round(avg * 100) / 100;
-
-  return { count, scores: sorted, finalScore };
-}
-
-
-
-// helper: parse date sigur
+// helper: parse date sigur (ISO recomandat)
 function parseDateOrNull(value) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
 
-// =====================
+// scor final anonimizat: omite min/max doar daca ai minim 3 note
+function computeFinalScoreValue(scores) {
+  if (!scores || scores.length < 3) return null;
+  const sorted = [...scores].sort((a, b) => a - b);
+  const trimmed = sorted.slice(1, -1);
+  const avg = trimmed.reduce((s, x) => s + x, 0) / trimmed.length;
+  return Math.round(avg * 100) / 100;
+}
+
+function computeRawAverage(scores) {
+  if (!scores || scores.length === 0) return null;
+  const avg = scores.reduce((acc, x) => acc + x, 0) / scores.length;
+  return Math.round(avg * 100) / 100;
+}
+
+// --------------------------------------------------
 // HEALTH
-// =====================
+// --------------------------------------------------
 app.get("/api/health", async (req, res) => {
   try {
     await prisma.user.findFirst();
@@ -144,11 +137,52 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// =====================
-// NOTE
-// =====================
+// --------------------------------------------------
+// DEMO: creeaza un juriu rapid (pentru test)
+// --------------------------------------------------
+// Body: { jurorName: "student1", projectId: 1 }
+// ATENTIE: asta creeaza un row in tabela Jury (doar pentru demo)
+app.post("/api/demo-jury", async (req, res) => {
+  try {
+    const jurorName = (req.body?.jurorName || "").toString().trim();
+    const projectId = Number(req.body?.projectId);
+    const deliverableId = Number(req.body?.deliverableId);
 
-// Inserare nota demo
+    if (!jurorName || Number.isNaN(projectId) || Number.isNaN(deliverableId)) {
+      return res.status(400).json({ error: "jurorName, projectId, deliverableId sunt obligatorii" });
+    }
+
+    // verifica deliverable apartine proiectului
+    const del = await prisma.deliverable.findUnique({ where: { id: deliverableId } });
+    if (!del) return res.status(404).json({ error: "Deliverable inexistent" });
+    if (del.projectId !== projectId) return res.status(400).json({ error: "Deliverable nu apartine proiectului" });
+
+    // creeaza / ia juriul unic pe (projectId, deliverableId)
+    const jury = await prisma.jury.upsert({
+      where: { projectId_deliverableId: { projectId, deliverableId } },
+      update: {},
+      create: { projectId, deliverableId },
+    });
+
+    // adauga user ca membru
+    const user = await getOrCreateUser(jurorName, "student");
+    await prisma.juryMember.upsert({
+      where: { juryId_userId: { juryId: jury.id, userId: user.id } },
+      update: {},
+      create: { juryId: jury.id, userId: user.id },
+    });
+
+    return res.json({ message: "Demo jury ok", juryId: jury.id });
+  } catch (err) {
+    console.error("DEMO-JURY ERROR:", err);
+    return res.status(500).json({ error: "demo-jury failed", message: err?.message });
+  }
+});
+
+
+// --------------------------------------------------
+// NOTE (demo + CRUD minimal)
+// --------------------------------------------------
 app.get("/api/note/demo", async (req, res) => {
   try {
     const prof = await getOrCreateUser("prof_demo", "profesor");
@@ -170,13 +204,12 @@ app.get("/api/note/demo", async (req, res) => {
   }
 });
 
-// Adaugare nota reala
 // Body: { profesor_id, student_id, valoare, comentariu }
 app.post("/api/note", async (req, res) => {
   try {
-    const { profesor_id, student_id, valoare, comentariu } = req.body;
-
+    const { profesor_id, student_id, valoare, comentariu } = req.body || {};
     const valoareNum = Number(valoare);
+
     if (!profesor_id || !student_id || Number.isNaN(valoareNum)) {
       return res.status(400).json({ error: "Date invalide pentru nota" });
     }
@@ -203,7 +236,6 @@ app.post("/api/note", async (req, res) => {
   }
 });
 
-// Lista note
 app.get("/api/note", async (req, res) => {
   try {
     const notes = await prisma.note.findMany({
@@ -227,16 +259,13 @@ app.get("/api/note", async (req, res) => {
   }
 });
 
-// =========================
+// --------------------------------------------------
 // PROIECTE + LIVRABILE (MVP)
-// =========================
-
-// Creeaza proiect + il adauga automat pe creator ca MP
+// --------------------------------------------------
 // Body: { creator_name, title, description }
 app.post("/api/projects", async (req, res) => {
   try {
-    const { creator_name, title, description } = req.body;
-
+    const { creator_name, title, description } = req.body || {};
     if (!creator_name || !title) {
       return res.status(400).json({ error: "creator_name si title sunt obligatorii" });
     }
@@ -247,12 +276,7 @@ app.post("/api/projects", async (req, res) => {
       data: {
         title,
         description: description || null,
-        members: {
-          create: {
-            userId: creator.id,
-            role: "MP",
-          },
-        },
+        members: { create: { userId: creator.id, role: "MP" } },
       },
       include: { members: { include: { user: true } } },
     });
@@ -264,14 +288,10 @@ app.post("/api/projects", async (req, res) => {
   }
 });
 
-// Listeaza proiectele
 app.get("/api/projects", async (req, res) => {
   try {
     const projects = await prisma.project.findMany({
-      include: {
-        members: { include: { user: true } },
-        deliverables: true,
-      },
+      include: { members: { include: { user: true } }, deliverables: true },
       orderBy: { createdAt: "desc" },
     });
 
@@ -282,7 +302,6 @@ app.get("/api/projects", async (req, res) => {
   }
 });
 
-// Detalii proiect
 app.get("/api/projects/:projectId", async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
@@ -297,7 +316,6 @@ app.get("/api/projects/:projectId", async (req, res) => {
     });
 
     if (!project) return res.status(404).json({ error: "Proiect inexistent" });
-
     res.json(project);
   } catch (err) {
     console.error("Eroare la detalii proiect:", err);
@@ -305,15 +323,13 @@ app.get("/api/projects/:projectId", async (req, res) => {
   }
 });
 
-// Adauga livrabil la proiect (doar MP)
 // Body: { creator_name, title, dueDate, videoUrl, liveUrl }
 app.post("/api/projects/:projectId/deliverables", async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
     if (Number.isNaN(projectId)) return res.status(400).json({ error: "projectId invalid" });
 
-    const { creator_name, title, dueDate, videoUrl, liveUrl } = req.body;
-
+    const { creator_name, title, dueDate, videoUrl, liveUrl } = req.body || {};
     if (!creator_name || !title || !dueDate) {
       return res.status(400).json({ error: "creator_name, title si dueDate sunt obligatorii" });
     }
@@ -326,10 +342,7 @@ app.post("/api/projects/:projectId/deliverables", async (req, res) => {
     const isMp = await prisma.projectMember.findFirst({
       where: { projectId, userId: user.id, role: "MP" },
     });
-
-    if (!isMp) {
-      return res.status(403).json({ error: "Doar un MP poate adauga livrabile" });
-    }
+    if (!isMp) return res.status(403).json({ error: "Doar un MP poate adauga livrabile" });
 
     const deliverable = await prisma.deliverable.create({
       data: {
@@ -348,38 +361,34 @@ app.post("/api/projects/:projectId/deliverables", async (req, res) => {
   }
 });
 
-// =========================
+// --------------------------------------------------
 // JURIU - asignare aleatorie
-// =========================
+// --------------------------------------------------
 // Body: { projectId, deliverableId, jurySize }
 // Selecteaza studenti (role=student) care NU sunt MP in proiect
 app.post("/api/juries/assign", async (req, res) => {
   try {
-    const { projectId, deliverableId, jurySize } = req.body;
-
-    const pId = Number(projectId);
-    const dId = Number(deliverableId);
-    const size = Number(jurySize) || 3;
+    const pId = Number(req.body?.projectId);
+    const dId = Number(req.body?.deliverableId);
+    const size = Number(req.body?.jurySize) || 3;
 
     if (Number.isNaN(pId) || Number.isNaN(dId)) {
       return res.status(400).json({ error: "projectId si deliverableId trebuie sa fie numere" });
     }
 
-    // verificare livrabil
     const deliverable = await prisma.deliverable.findUnique({ where: { id: dId } });
     if (!deliverable) return res.status(404).json({ error: "Deliverable inexistent" });
     if (deliverable.projectId !== pId) {
       return res.status(400).json({ error: "Deliverable nu apartine proiectului" });
     }
 
-    // MP-ii proiectului (de exclus)
+    // exclude MP
     const projectMPs = await prisma.projectMember.findMany({
       where: { projectId: pId, role: "MP" },
       select: { userId: true },
     });
     const mpIds = projectMPs.map((x) => x.userId);
 
-    // candidati studenti care NU sunt MP
     const candidates = await prisma.user.findMany({
       where: { role: "student", id: { notIn: mpIds } },
       select: { id: true, name: true },
@@ -389,25 +398,19 @@ app.post("/api/juries/assign", async (req, res) => {
       return res.status(400).json({ error: "Nu exista studenti candidati" });
     }
 
-    // selectie aleatorie
     const shuffled = [...candidates].sort(() => Math.random() - 0.5);
     const selected = shuffled.slice(0, Math.min(size, shuffled.length));
 
     // juriu unic pe (project, deliverable)
     const jury = await prisma.jury.upsert({
-      where: {
-        projectId_deliverableId: { projectId: pId, deliverableId: dId },
-      },
+      where: { projectId_deliverableId: { projectId: pId, deliverableId: dId } },
       update: {},
       create: { projectId: pId, deliverableId: dId },
     });
 
-    // adauga membri juriu (fara duplicate) - compatibil Prisma
     for (const u of selected) {
       await prisma.juryMember.upsert({
-        where: {
-          juryId_userId: { juryId: jury.id, userId: u.id },
-        },
+        where: { juryId_userId: { juryId: jury.id, userId: u.id } },
         update: {},
         create: { juryId: jury.id, userId: u.id },
       });
@@ -429,12 +432,10 @@ app.post("/api/juries/assign", async (req, res) => {
   }
 });
 
-// =========================
+// --------------------------------------------------
 // JURIU (student) - ANONIM
-// =========================
 // GET /api/juries/:juryId?user=Vlad
-// - NU arata lista membrilor
-// - Daca user e membru => arata doar evaluarea lui (myEvaluation)
+// --------------------------------------------------
 app.get("/api/juries/:juryId", async (req, res) => {
   try {
     const juryId = Number(req.params.juryId);
@@ -475,16 +476,8 @@ app.get("/api/juries/:juryId", async (req, res) => {
       }
     }
 
-    // scor final anonimizat (omit max+min)
     const scores = jury.evaluations.map((e) => e.score);
-    let finalScore = null;
-
-    if (scores.length >= 3) {
-      const sorted = [...scores].sort((a, b) => a - b);
-      const trimmed = sorted.slice(1, -1);
-      const avg = trimmed.reduce((s, x) => s + x, 0) / trimmed.length;
-      finalScore = Math.round(avg * 100) / 100;
-    }
+    const finalScore = computeFinalScoreValue(scores);
 
     return res.json({
       id: jury.id,
@@ -505,9 +498,9 @@ app.get("/api/juries/:juryId", async (req, res) => {
   }
 });
 
-// =========================
+// --------------------------------------------------
 // JURIU (teacher) - fara identitatea juriului
-// =========================
+// --------------------------------------------------
 app.get("/api/teacher/juries/:juryId", async (req, res) => {
   try {
     const juryId = Number(req.params.juryId);
@@ -515,23 +508,12 @@ app.get("/api/teacher/juries/:juryId", async (req, res) => {
 
     const jury = await prisma.jury.findUnique({
       where: { id: juryId },
-      include: {
-        project: true,
-        deliverable: true,
-        evaluations: true,
-      },
+      include: { project: true, deliverable: true, evaluations: true },
     });
-
     if (!jury) return res.status(404).json({ error: "Juriu inexistent" });
 
     const scores = jury.evaluations.map((e) => e.score).sort((a, b) => a - b);
-
-    let finalScore = null;
-    if (scores.length >= 3) {
-      const trimmed = scores.slice(1, -1);
-      const avg = trimmed.reduce((s, x) => s + x, 0) / trimmed.length;
-      finalScore = Math.round(avg * 100) / 100;
-    }
+    const finalScore = computeFinalScoreValue(scores);
 
     return res.json({
       id: jury.id,
@@ -551,17 +533,13 @@ app.get("/api/teacher/juries/:juryId", async (req, res) => {
   }
 });
 
-
-
-
-// =========================
+// --------------------------------------------------
 // EVALUARI - doar juriu
-// =========================
 // Body: { juryId, juror_name, score, comment }
+// --------------------------------------------------
 app.post("/api/evaluations", async (req, res) => {
   try {
-    const { juryId, juror_name, score, comment } = req.body;
-
+    const { juryId, juror_name, score, comment } = req.body || {};
     const jId = Number(juryId);
     const s = Number(score);
 
@@ -572,18 +550,16 @@ app.post("/api/evaluations", async (req, res) => {
     const errScore = validateGrade(s);
     if (errScore) return res.status(400).json({ error: errScore });
 
-    // ia juriul + deliverable (pentru dueDate)
     const jury = await prisma.jury.findUnique({
       where: { id: jId },
       include: { deliverable: true },
     });
     if (!jury) return res.status(404).json({ error: "Juriu inexistent" });
 
-    // fereastra de timp (24h dupa dueDate)
+    // fereastra de timp: 24h dupa dueDate
     const now = new Date();
     const due = new Date(jury.deliverable.dueDate);
-    const limitHours = 24;
-    const deadline = new Date(due.getTime() + limitHours * 60 * 60 * 1000);
+    const deadline = new Date(due.getTime() + 24 * 60 * 60 * 1000);
 
     if (now < due) {
       return res.status(403).json({ error: "Inca nu a inceput perioada de notare (nu s-a ajuns la dueDate)" });
@@ -592,20 +568,15 @@ app.post("/api/evaluations", async (req, res) => {
       return res.status(403).json({ error: "Perioada de notare a expirat" });
     }
 
-    // user (jurat) - rol student
     const user = await getOrCreateUser(juror_name, "student");
 
-    // verifica membru in juriu
     const member = await prisma.juryMember.findFirst({
       where: { juryId: jId, userId: user.id },
     });
     if (!member) return res.status(403).json({ error: "Nu esti membru in acest juriu" });
 
-    // upsert evaluarea lui
     const evaluation = await prisma.evaluation.upsert({
-      where: {
-        juryId_userId: { juryId: jId, userId: user.id },
-      },
+      where: { juryId_userId: { juryId: jId, userId: user.id } },
       update: { score: s, comment: comment || null },
       create: { juryId: jId, userId: user.id, score: s, comment: comment || null },
     });
@@ -617,24 +588,16 @@ app.post("/api/evaluations", async (req, res) => {
   }
 });
 
-// =========================
-// SCOR FINAL LIVRABIL (medie evaluari)
-// =========================
+// --------------------------------------------------
+// SCORE LIVRABIL (rawAverage + finalScore)
+// --------------------------------------------------
 app.get("/api/projects/:projectId/deliverables/:deliverableId/score", async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
     const deliverableId = Number(req.params.deliverableId);
 
     if (Number.isNaN(projectId) || Number.isNaN(deliverableId)) {
-      return res.status(400).json({ error: "projectId / deliverableId invalide" });
-    }
-
-    const del = await prisma.deliverable.findUnique({
-      where: { id: deliverableId },
-    });
-    if (!del) return res.status(404).json({ error: "Deliverable inexistent" });
-    if (del.projectId !== projectId) {
-      return res.status(400).json({ error: "Deliverable nu apartine proiectului" });
+      return res.status(400).json({ error: "projectId/deliverableId invalid" });
     }
 
     const jury = await prisma.jury.findUnique({
@@ -643,29 +606,27 @@ app.get("/api/projects/:projectId/deliverables/:deliverableId/score", async (req
     });
 
     if (!jury) {
-      return res.status(404).json({ error: "Nu exista juriu asignat pentru acest deliverable" });
+      return res.status(404).json({ error: "Nu exista juriu pentru acest livrabil" });
     }
 
-    const evaluations = jury.evaluations || [];
-    const count = evaluations.length;
-    const avg = count === 0 ? null : evaluations.reduce((sum, e) => sum + e.score, 0) / count;
-
+    const scores = jury.evaluations.map((e) => e.score);
     return res.json({
       projectId,
       deliverableId,
       juryId: jury.id,
-      countEvaluations: count,
-      averageScore: avg,
+      countEvaluations: scores.length,
+      rawAverage: computeRawAverage(scores),
+      finalScore: computeFinalScoreValue(scores),
     });
   } catch (err) {
-    console.error("Eroare scor livrabil:", err);
-    return res.status(500).json({ error: "Eroare la scor livrabil", details: err.message });
+    console.error("Eroare score:", err);
+    return res.status(500).json({ error: "Eroare la calcul scor", details: err.message });
   }
 });
 
-// =========================
-// RAPORT PROIECT (membri + livrabile + jurii + evaluari + medie)
-// =========================
+// --------------------------------------------------
+// RAPORT PROIECT (complet)
+// --------------------------------------------------
 app.get("/api/projects/:projectId/report", async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
@@ -705,7 +666,7 @@ app.get("/api/projects/:projectId/report", async (req, res) => {
       deliverables: project.deliverables.map((d) => {
         const jury = d.juries?.[0] || null;
         const evals = jury?.evaluations || [];
-        const avg = evals.length === 0 ? null : evals.reduce((s, e) => s + e.score, 0) / evals.length;
+        const scores = evals.map((e) => e.score);
 
         return {
           id: d.id,
@@ -730,8 +691,9 @@ app.get("/api/projects/:projectId/report", async (req, res) => {
                   comment: e.comment,
                   updatedAt: e.updatedAt,
                 })),
-                countEvaluations: evals.length,
-                averageScore: avg,
+                countEvaluations: scores.length,
+                rawAverage: computeRawAverage(scores),
+                finalScore: computeFinalScoreValue(scores),
               }
             : null,
         };
@@ -745,9 +707,9 @@ app.get("/api/projects/:projectId/report", async (req, res) => {
   }
 });
 
-// =========================
-// PROFESOR VIEW (anonim) - raport proiect fara identitatea juriului
-// =========================
+// --------------------------------------------------
+// PROFESOR VIEW (anonim) - fara identitatea juriului
+// --------------------------------------------------
 app.get("/api/teacher/projects/:projectId/report", async (req, res) => {
   try {
     const projectId = Number(req.params.projectId);
@@ -760,11 +722,7 @@ app.get("/api/teacher/projects/:projectId/report", async (req, res) => {
         deliverables: {
           orderBy: { dueDate: "asc" },
           include: {
-            juries: {
-              include: {
-                evaluations: true, // fara user
-              },
-            },
+            juries: { include: { evaluations: true } }, // fara user
           },
         },
       },
@@ -786,17 +744,6 @@ app.get("/api/teacher/projects/:projectId/report", async (req, res) => {
       deliverables: project.deliverables.map((d) => {
         const jury = d.juries?.[0] || null;
         const scores = jury ? jury.evaluations.map((e) => e.score) : [];
-        const countEvaluations = scores.length;
-
-        // scor final: omite min + max (doar daca ai minim 3 note)
-        let finalScore = null;
-        if (scores.length >= 3) {
-          const sorted = [...scores].sort((a, b) => a - b);
-          const trimmed = sorted.slice(1, -1);
-          const avg = trimmed.reduce((s, x) => s + x, 0) / trimmed.length;
-          finalScore = Math.round(avg * 100) / 100; // 2 zecimale
-        }
-
         return {
           id: d.id,
           title: d.title,
@@ -808,9 +755,9 @@ app.get("/api/teacher/projects/:projectId/report", async (req, res) => {
             ? {
                 id: jury.id,
                 createdAt: jury.createdAt,
-                countEvaluations,
-                scores,     // OPTIONAL: poti sa-l scoti daca vrei si mai anonim
-                finalScore, // asta e important
+                countEvaluations: scores.length,
+                rawAverage: computeRawAverage(scores),
+                finalScore: computeFinalScoreValue(scores),
               }
             : null,
         };
@@ -824,56 +771,9 @@ app.get("/api/teacher/projects/:projectId/report", async (req, res) => {
   }
 });
 
-// =========================
-// SCORE LIVRABIL (finalScore = fara min/max)
-// =========================
-app.get("/api/projects/:projectId/deliverables/:deliverableId/score", async (req, res) => {
-  try {
-    const projectId = Number(req.params.projectId);
-    const deliverableId = Number(req.params.deliverableId);
-
-    if (Number.isNaN(projectId) || Number.isNaN(deliverableId)) {
-      return res.status(400).json({ error: "projectId/deliverableId invalid" });
-    }
-
-    const jury = await prisma.jury.findUnique({
-      where: {
-        projectId_deliverableId: { projectId, deliverableId },
-      },
-      include: {
-        evaluations: true,
-      },
-    });
-
-    if (!jury) {
-      return res.status(404).json({ error: "Nu exista juriu pentru acest livrabil" });
-    }
-
-    const scores = jury.evaluations.map((e) => e.score);
-    const countEvaluations = scores.length;
-
-    const rawAverage = computeRawAverage(scores);
-    const finalScore = computeFinalScore(scores);
-
-    return res.json({
-      projectId,
-      deliverableId,
-      juryId: jury.id,
-      countEvaluations,
-      rawAverage,
-      finalScore,
-    });
-  } catch (err) {
-    console.error("Eroare score:", err);
-    return res.status(500).json({ error: "Eroare la calcul scor", details: err.message });
-  }
-});
-
-
-
-// =====================
+// --------------------------------------------------
 // STOP CLEAN
-// =====================
+// --------------------------------------------------
 process.on("SIGINT", async () => {
   try {
     await prisma.$disconnect();
