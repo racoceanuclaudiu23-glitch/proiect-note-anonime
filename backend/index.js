@@ -17,8 +17,19 @@ const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 // APP SETUP
 // --------------------------------------------------
 const app = express();
-app.get("/", (req, res) => res.send("OK backend"));
-app.get("/api/health", (req, res) => res.json({ status: "ok", where: "backend" }));
+app.get("/api/version", (req, res) =>
+  res.json({ version: "v-" + new Date().toISOString() })
+);
+
+app.get("/api/health", async (req, res) => {
+  try {
+    await prisma.user.findFirst();
+    res.json({ status: "ok", db: "ok" });
+  } catch (e) {
+    res.status(500).json({ status: "error", db: "fail", message: e.message });
+  }
+});
+
 
 app.use(cors());
 app.use(express.json());
