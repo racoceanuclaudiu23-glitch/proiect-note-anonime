@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API = ""; // folosim proxy /api din vite.config.js
+const API = import.meta.env.VITE_API_URL || "";
+
 
 async function request(path, options = {}) {
   const res = await fetch(API + path, {

@@ -1,3 +1,5 @@
+
+
 // index.js - backend pentru aplicatia de note anonime (Prisma v7 + SQLite)
 
 const path = require("path");
@@ -9,7 +11,8 @@ const { PrismaClient } = require("@prisma/client");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
 
 app.use(cors());
 app.use(express.json());
