@@ -14,22 +14,12 @@ const { PrismaClient } = require("@prisma/client");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
 // --------------------------------------------------
-// APP SETUP
+// APP + PRISMA SETUP (ordinea asta e importanta)
 // --------------------------------------------------
 const app = express();
-app.get("/api/version", (req, res) =>
-  res.json({ version: "v-" + new Date().toISOString() })
-);
-
-app.get("/api/health", async (req, res) => {
-  try {
-    await prisma.user.findFirst();
-    res.json({ status: "ok", db: "ok" });
-  } catch (e) {
-    res.status(500).json({ status: "error", db: "fail", message: e.message });
-  }
+app.get("/", (req, res) => {
+  res.send("API backend running");
 });
-
 
 app.use(cors());
 app.use(express.json());
@@ -42,12 +32,45 @@ if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
 const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-// Lista jurii unde user e membru
+// --------------------------------------------------
+// HELPERS
+// --------------------------------------------------
+function computeFinalScoreValue(scores) {
+  if (!scores || scores.length < 3) return null; // ai nevoie de minim 3 ca sa scoti min+max
+  const sorted = [...scores].sort((a, b) => a - b);
+  const trimmed = sorted.slice(1, -1);
+  const avg = trimmed.reduce((s, x) => s + x, 0) / trimmed.length;
+  return Math.round(avg * 100) / 100;
+}
+
+// --------------------------------------------------
+// BASIC ROUTES
+// --------------------------------------------------
+app.get("/", (req, res) => res.send("OK backend"));
+
+app.get("/api/version", (req, res) => {
+  res.json({ version: "v-" + new Date().toISOString() });
+});
+
+app.get("/api/health", async (req, res) => {
+  try {
+    await prisma.user.findFirst();
+    res.json({ status: "ok", db: "ok" });
+  } catch (e) {
+    res.status(500).json({ status: "error", db: "fail", message: e.message });
+  }
+});
+
+// --------------------------------------------------
+// JURIES: lista jurii unde user e membru
 // GET /api/juries?user=student1
+// --------------------------------------------------
 app.get("/api/juries", async (req, res) => {
   try {
     const userName = (req.query.user || "").toString().trim();
-    if (!userName) return res.status(400).json({ error: "query param user este obligatoriu" });
+    if (!userName) {
+      return res.status(400).json({ error: "query param user este obligatoriu" });
+    }
 
     const user = await prisma.user.findFirst({ where: { name: userName } });
     if (!user) return res.json({ total: 0, juries: [] });
@@ -87,8 +110,15 @@ app.get("/api/juries", async (req, res) => {
   }
 });
 
-
+// --------------------------------------------------
+// PORT + LISTEN
+// --------------------------------------------------
 const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Serverul ruleaza pe port:", PORT);
+});
+
 
 // --------------------------------------------------
 // HELPERS
