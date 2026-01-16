@@ -2,8 +2,8 @@
 
 ## Link aplicație (deploy)
 
-- **Backend (API):** https://project-note-anonime.onrender.com  
-- **Health check:** https://project-note-anonime.onrender.com/api/health  
+- **Backend (API):** https://proiect-note-anonime.onrender.com 
+- **Health check:** https://proiect-note-anonime.vercel.app/
 
  Aplicația backend este deployată pe platforma **Render** și este accesibilă public.
 
