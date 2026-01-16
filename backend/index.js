@@ -14,7 +14,7 @@ const { PrismaClient } = require("@prisma/client");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
 // --------------------------------------------------
-// APP + PRISMA SETUP (ordinea asta e importanta)
+// APP + PRISMA SETUP 
 // --------------------------------------------------
 const app = express();
 app.get("/", (req, res) => {
